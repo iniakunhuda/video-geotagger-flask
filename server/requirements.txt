@@ -1,0 +1,7 @@
+Flask
+Flask-Cors
+Pillow
+Exif
+numpy
+scipy
+opencv-python
