@@ -110,7 +110,7 @@ def split_video():
         return jsonify({'error': str(e)}), 500
     
 
-@app.route('/interpolate-path', methods=['POST', 'OPTIONS'])
+@app.route('/interpolate-path-old', methods=['POST', 'OPTIONS'])
 def interpolate_path():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
@@ -191,6 +191,70 @@ def interpolate_path():
         return jsonify({
             'metadata': metadata,
             'path_stats': path_stats,
+            'points': result
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/interpolate-path-v2', methods=['POST', 'OPTIONS'])
+def interpolate_path_v2():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+        
+    try:
+        # Validate video file
+        if 'video' not in request.files:
+            return jsonify({'error': 'No video file found in the request'}), 400
+            
+        video_file = request.files['video']
+        
+        # Get and validate markers data
+        markers_data = request.form.get('markers')
+        if not markers_data:
+            return jsonify({'error': 'markers data is required'}), 400
+            
+        try:
+            markers = json.loads(markers_data)
+            if not isinstance(markers, list):
+                return jsonify({'error': 'markers data must be a list'}), 400
+                
+            # Validate marker structure
+            for marker in markers:
+                if not all(k in marker for k in ('timestamp', 'lat', 'lng')):
+                    return jsonify({'error': 'Invalid marker format. Each marker must have timestamp, lat, and lng'}), 400
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid JSON format in markers data'}), 400
+            
+        # Create helpers
+        video_helper = VideoHelper()
+        
+        # Get video metadata and frames
+        video_bytes = video_file.read()
+        metadata = video_helper.get_video_metadata(video_bytes)
+        
+        if not metadata:
+            return jsonify({'error': 'Failed to read video metadata'}), 400
+            
+        # Extract frames at marker timestamps
+        frames = video_helper.extract_frames_at_timestamps(
+            video_bytes=video_bytes,
+            timestamps=[marker['timestamp'] for marker in markers]
+        )
+        
+        # Combine frames with marker data
+        result = []
+        for marker, frame in zip(markers, frames):
+            if frame:  # Only include if frame was successfully extracted
+                result.append({
+                    'timestamp': marker['timestamp'],
+                    'lat': marker['lat'],
+                    'lng': marker['lng'],
+                    'frame': frame
+                })
+        
+        return jsonify({
+            'metadata': metadata,
             'points': result
         }), 200
         

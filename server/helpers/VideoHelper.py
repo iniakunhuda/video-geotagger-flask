@@ -186,3 +186,62 @@ class VideoHelper:
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         else:
             return f"{minutes:02d}:{seconds:02d}"
+        
+    def extract_frames_at_timestamps(self, video_bytes: bytes, timestamps: List[float]) -> List[str]:
+        """
+        Extract frames at specific timestamps from video.
+        
+        Args:
+            video_bytes (bytes): Video file in bytes
+            timestamps (List[float]): List of timestamps in seconds
+            
+        Returns:
+            List[str]: List of base64 encoded frames with data URI prefix
+        """
+        try:
+            # Convert bytes to video
+            video = self._bytes_to_video(video_bytes)
+            if video is None:
+                return []
+            
+            # Get video properties
+            fps = video.get(cv2.CAP_PROP_FPS)
+            if fps <= 0:
+                return []
+                
+            frames = []
+            
+            for timestamp in timestamps:
+                # Convert timestamp to frame number
+                frame_number = int(timestamp * fps)
+                
+                # Set frame position
+                video.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+                
+                # Read frame
+                success, frame = video.read()
+                
+                if not success:
+                    frames.append(None)
+                    continue
+                
+                # Resize frame if it's too large
+                height, width = frame.shape[:2]
+                if width > 1280:  # Max width threshold
+                    scale = 1280 / width
+                    new_width = int(width * scale)
+                    new_height = int(height * scale)
+                    frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                
+                # Convert frame to base64
+                base64_frame = self._frame_to_base64(frame)
+                frames.append(base64_frame)
+            
+            # Release video capture
+            video.release()
+            
+            return frames
+            
+        except Exception as e:
+            print(f"Error extracting frames at timestamps: {str(e)}")
+            return []
