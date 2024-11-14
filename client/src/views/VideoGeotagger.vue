@@ -162,6 +162,8 @@ onMounted(() => {
 
 const isExporting = ref(false);
 const exportedFrames = ref([]);
+const frameInterval = ref(5);
+const pathStats = ref(null);
 
 const exportMarkers = async () => {
     if (!videoFile.value || !customMarkers.value.length) return;
@@ -172,15 +174,17 @@ const exportMarkers = async () => {
         const formData = new FormData();
         formData.append("video", selectedVideoFile.value);
         formData.append("markers", JSON.stringify(customMarkers.value));
+        formData.append("frames_interval", frameInterval.value.toString());
 
         // Send request to server
         const response = await axios.post(
-            `${API_URL}/interpolate-path-v2`,
+            `${API_URL}/interpolate-path`,
             formData
         );
 
-        // Store exported frames
+        // Store exported data
         exportedFrames.value = response.data.points;
+        pathStats.value = response.data.path_stats;
 
         // Download the results as JSON
         const jsonContent = JSON.stringify(response.data, null, 2);
@@ -276,6 +280,35 @@ const exportMarkers = async () => {
                         <p class="mt-1 text-sm text-gray-500">
                             Upload your flight history CSV file
                         </p>
+                    </div>
+
+                    <!-- Marker Interval Control -->
+                    <div class="mt-14 pt-5">
+                        <div class="space-y-2">
+                            <label
+                                class="block text-sm font-medium text-gray-700"
+                            >
+                                Frame Interval (seconds)
+                            </label>
+                            <div class="flex items-center space-x-2">
+                                <input
+                                    v-model="frameInterval"
+                                    type="number"
+                                    min="1"
+                                    max="60"
+                                    class="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                                    placeholder="1"
+                                />
+                                <span class="text-sm text-gray-500">
+                                    Extract a frame every
+                                    {{ frameInterval }} seconds
+                                </span>
+                            </div>
+                            <p class="text-xs text-gray-500">
+                                Recommended: 1-5 seconds for detailed paths,
+                                5-30 seconds for longer videos
+                            </p>
+                        </div>
                     </div>
 
                     <div class="flex justify-between items-center pt-4">
@@ -444,9 +477,9 @@ const exportMarkers = async () => {
         <!-- Show exported frames if available -->
         <div v-if="exportedFrames.length > 0" class="mt-6">
             <h3 class="text-lg font-medium text-gray-900 mb-4">
-                Exported Frames
+                Interpolated Path Frames
             </h3>
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 <div
                     v-for="(point, index) in exportedFrames"
                     :key="index"
@@ -455,14 +488,14 @@ const exportMarkers = async () => {
                     <img
                         :src="point.frame"
                         :alt="`Frame at ${point.timestamp}s`"
-                        class="rounded-lg shadow-sm"
+                        class="rounded-lg shadow-sm w-full"
                     />
                     <div
                         class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-1 rounded-b-lg"
                     >
-                        {{ point.timestamp.toFixed(2) }}s - [{{
-                            point.lat.toFixed(6)
-                        }}, {{ point.lng.toFixed(6) }}]
+                        {{ point.timestamp.toFixed(2) }}s
+                        <br />
+                        [{{ point.lat.toFixed(6) }}, {{ point.lng.toFixed(6) }}]
                     </div>
                 </div>
             </div>
