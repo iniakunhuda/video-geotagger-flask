@@ -62,10 +62,10 @@ const features = [
         path: "/write-metadata",
     },
     {
-        name: "Feature 4",
-        description: "Coming soon...",
+        name: "Video Geotagger",
+        description: "Geotagger from Video and generate image metadata",
         icon: ChartBarIcon,
-        path: "/",
+        path: "/video-geotagger",
     },
 ];
 </script>
