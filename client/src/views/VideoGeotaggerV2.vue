@@ -5,6 +5,7 @@ import { PlusIcon, TrashIcon } from "@heroicons/vue/24/outline";
 import Papa from "papaparse";
 import "leaflet/dist/leaflet.css";
 import JSZip from "jszip";
+import piexif from "piexifjs";
 
 import axios from "axios";
 const API_URL = "http://127.0.0.1:5000";
@@ -235,102 +236,6 @@ const exportMarkers = async () => {
     }
 };
 
-// const exportMarkers = async () => {
-//     if (!videoFile.value || !customMarkers.value.length) return;
-
-//     isExporting.value = true;
-//     try {
-//         // Create form data
-//         const formData = new FormData();
-//         formData.append("video", selectedVideoFile.value);
-//         formData.append("markers", JSON.stringify(customMarkers.value));
-//         formData.append("frames_interval", frameInterval.value.toString());
-
-//         // Send request to server
-//         const response = await axios.post(
-//             `${API_URL}/interpolate-path`,
-//             formData
-//         );
-
-//         // Store exported data
-//         exportedFrames.value = response.data.points;
-//         pathStats.value = response.data.path_stats;
-
-//         // Create a new ZIP file
-//         const zip = new JSZip();
-//         const promises = [];
-
-//         // Process each frame and add metadata
-//         for (const point of exportedFrames.value) {
-//             const metadata = {
-//                 gps_latitude: decimalToDMS(Math.abs(point.lat)),
-//                 gps_latitude_ref: point.lat >= 0 ? "N" : "S",
-//                 gps_longitude: decimalToDMS(Math.abs(point.lng)),
-//                 gps_longitude_ref: point.lng >= 0 ? "E" : "W",
-//                 gps_altitude: point.altitude || 0,
-//                 gps_altitude_ref: "ABOVE_SEA_LEVEL"
-//             };
-
-//             // Create form data for each image
-//             const imageFormData = new FormData();
-//             const imageBlob = await base64ToBlob(point.frame, 'image/jpeg');
-//             imageFormData.append("image", imageBlob);
-//             imageFormData.append("metadata", JSON.stringify(metadata));
-
-//             // Add to promises array
-//             promises.push(
-//                 axios.post(`${API_URL}/write-metadata`, imageFormData)
-//                     .then(response => ({
-//                         image: response.data.updated_image,
-//                         timestamp: point.timestamp
-//                     }))
-//             );
-//         }
-
-//         // Wait for all metadata writing operations to complete
-//         const results = await Promise.all(promises);
-
-//         // Add each processed image to the ZIP file
-//         results.forEach((result, index) => {
-//             console.log("Result", result);
-//             const fileName = `frame_${result.timestamp.toFixed(2)}s.jpg`;
-//             zip.file(fileName, result.image.split(',')[1], { base64: true });
-//         });
-
-//         // Generate and download the ZIP file
-//         const zipBlob = await zip.generateAsync({ type: "blob" });
-//         const zipUrl = URL.createObjectURL(zipBlob);
-//         const link = document.createElement("a");
-//         link.href = zipUrl;
-//         link.download = "video-frames.zip";
-//         document.body.appendChild(link);
-//         link.click();
-//         document.body.removeChild(link);
-//         URL.revokeObjectURL(zipUrl);
-
-//         // Also save the JSON data
-//         const jsonContent = JSON.stringify(response.data, null, 2);
-//         const jsonBlob = new Blob([jsonContent], { type: "application/json" });
-//         const jsonUrl = URL.createObjectURL(jsonBlob);
-//         const jsonLink = document.createElement("a");
-//         jsonLink.href = jsonUrl;
-//         jsonLink.download = "video-markers.json";
-//         document.body.appendChild(jsonLink);
-//         jsonLink.click();
-//         document.body.removeChild(jsonLink);
-//         URL.revokeObjectURL(jsonUrl);
-
-//     } catch (error) {
-//         console.error("Error exporting markers:", error);
-//         alert(
-//             "Error exporting markers: " +
-//             (error.response?.data?.error || error.message)
-//         );
-//     } finally {
-//         isExporting.value = false;
-//     }
-// };
-
 // Add helper functions for coordinate conversion
 const decimalToDMS = (decimal) => {
     const degrees = Math.floor(decimal);
@@ -349,6 +254,104 @@ const base64ToBlob = async (base64Data, contentType) => {
     } catch (error) {
         console.error("Error converting base64 to blob:", error);
         throw error;
+    }
+};
+
+const isExportingImages = ref(false);
+
+const addExifToImage = async (imageDataUrl, lat, lng) => {
+    try {
+        // Convert base64 to binary
+        const imageData = imageDataUrl.replace(/^data:image\/jpeg;base64,/, "");
+
+        // Create GPS EXIF data
+        const zeroth = {};
+        const exif = {};
+        const gps = {};
+
+        // Convert decimal coordinates to EXIF format: [[D, 1], [M, 1], [S*100, 100]]
+        const latAbs = Math.abs(lat);
+        const latDeg = Math.floor(latAbs);
+        const latMin = Math.floor((latAbs - latDeg) * 60);
+        const latSec = Math.round((latAbs - latDeg - latMin / 60) * 3600 * 100);
+
+        const lngAbs = Math.abs(lng);
+        const lngDeg = Math.floor(lngAbs);
+        const lngMin = Math.floor((lngAbs - lngDeg) * 60);
+        const lngSec = Math.round((lngAbs - lngDeg - lngMin / 60) * 3600 * 100);
+
+        // Required GPS tags
+        gps[piexif.GPSIFD.GPSVersionID] = [2, 2, 0, 0];
+        gps[piexif.GPSIFD.GPSLatitudeRef] = lat >= 0 ? "N" : "S";
+        gps[piexif.GPSIFD.GPSLatitude] = [
+            [latDeg, 1],
+            [latMin, 1],
+            [latSec, 100],
+        ];
+        gps[piexif.GPSIFD.GPSLongitudeRef] = lng >= 0 ? "E" : "W";
+        gps[piexif.GPSIFD.GPSLongitude] = [
+            [lngDeg, 1],
+            [lngMin, 1],
+            [lngSec, 100],
+        ];
+
+        // Create EXIF object and dump to binary
+        const exifObj = { "0th": zeroth, Exif: exif, GPS: gps };
+        const exifBytes = piexif.dump(exifObj);
+
+        // Insert EXIF into JPEG
+        const newImageData = piexif.insert(exifBytes, imageData);
+
+        return `data:image/jpeg;base64,${newImageData}`;
+    } catch (error) {
+        console.error("Error adding EXIF data:", error);
+        console.log("Lat:", lat, "Lng:", lng);
+        return imageDataUrl;
+    }
+};
+
+const exportImagesWithExif = async () => {
+    if (!exportedFrames.value.length) return;
+    isExportingImages.value = true;
+
+    try {
+        const zip = new JSZip();
+        const imagesFolder = zip.folder("images");
+
+        for (let i = 0; i < exportedFrames.value.length; i++) {
+            const frame = exportedFrames.value[i];
+            const imageWithExif = await addExifToImage(
+                frame.frame,
+                frame.lat,
+                frame.lng
+            );
+
+            // Remove data URL prefix for zip file
+            const base64Data = imageWithExif.replace(
+                /^data:image\/jpeg;base64,/,
+                ""
+            );
+
+            const filename = `frame_${i}_${frame.timestamp.toFixed(
+                2
+            )}s_${frame.lat.toFixed(6)}_${frame.lng.toFixed(6)}.jpg`;
+            imagesFolder.file(filename, base64Data, { base64: true });
+        }
+
+        const content = await zip.generateAsync({ type: "blob" });
+        const url = URL.createObjectURL(content);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "frames_with_exif.zip";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error("Error exporting images:", error);
+        alert("Error exporting images: " + error.message);
+    } finally {
+        isExportingImages.value = false;
     }
 };
 </script>
@@ -644,6 +647,42 @@ const base64ToBlob = async (base64Data, contentType) => {
             <h3 class="text-lg font-medium text-gray-900 mb-4">
                 Interpolated Path Frames
             </h3>
+            <button
+                @click="exportImagesWithExif"
+                class="btn-primary"
+                :disabled="isExportingImages"
+            >
+                <div class="flex items-center space-x-2">
+                    <svg
+                        v-if="isExportingImages"
+                        class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                    >
+                        <circle
+                            class="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            stroke-width="4"
+                        ></circle>
+                        <path
+                            class="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
+                    </svg>
+                    <span>
+                        {{
+                            isExportingImages
+                                ? "Exporting..."
+                                : "Export Images with EXIF"
+                        }}
+                    </span>
+                </div>
+            </button>
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 <div
                     v-for="(point, index) in exportedFrames"
