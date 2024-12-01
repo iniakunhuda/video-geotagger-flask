@@ -1,12 +1,16 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from PIL import Image
 import io
 import json
+import tempfile
+from datetime import datetime
+import os
 
 from helpers.ExifHelper import ExifHelper
 from helpers.LocationHelper import LocationHelper
 from helpers.VideoHelper import VideoHelper
+from helpers.GeotaggerHelper import GeotaggerHelper
 
 app = Flask(__name__)
 # Enable CORS for all routes
@@ -277,6 +281,73 @@ def interpolate_path_v2():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/geotagger-video-test', methods=['POST', 'OPTIONS'])
+def geotagger_video_test():
+    # Open json result2.json
+    try:
+        with open('result2.json', 'r') as file:
+            data = json.load(file)
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
+@app.route('/geotagger-video', methods=['POST', 'OPTIONS'])
+def geotagger_video():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
+        
+    try:
+        if 'video' not in request.files or 'csv' not in request.files:
+            return jsonify({'error': 'Missing video or CSV file'}), 400
+            
+        video_file = request.files['video']
+        csv_file = request.files['csv']
+        
+        # Get output directory from request or use default
+        output_dir = request.form.get('output_dir', 'drone_frames')
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as video_tmp:
+            video_file.save(video_tmp.name)
+            video_path = video_tmp.name
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as csv_tmp:
+            csv_file.save(csv_tmp.name)
+            csv_path = csv_tmp.name
+            
+        try:
+            helper = GeotaggerHelper(csv_path, video_path, output_dir)
+            helper.load_telemetry_data()
+            helper.load_video()
+            saved_frames = helper.process_video()
+            
+            return jsonify({
+                'status': 'success',
+                'saved_frames': saved_frames
+            })
+            
+        finally:
+            os.unlink(video_path)
+            os.unlink(csv_path)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+# Route to serve images from drone_frames directory
+@app.route('/drone_frames/<path:filename>')
+def serve_drone_frames(filename):
+    # Get the absolute path to the drone_frames directory
+    drone_frames_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'drone_frames')
+    
+    # Extract the directory path from the filename
+    directory = os.path.dirname(filename)
+    base_filename = os.path.basename(filename)
+    
+    # Construct the full directory path
+    full_directory = os.path.join(drone_frames_dir, directory)
+    
+    return send_from_directory(full_directory, base_filename)
+    
 if __name__ == '__main__':
     app.run(debug=True, host='localhost', port=5000)

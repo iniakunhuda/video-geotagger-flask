@@ -5,3 +5,5 @@ Exif
 numpy
 scipy
 opencv-python
+pandas
+piexif

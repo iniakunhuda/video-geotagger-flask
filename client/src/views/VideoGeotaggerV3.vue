@@ -18,7 +18,8 @@ const flightHistory = ref([]);
 const markers = ref([]);
 const customMarkers = ref([]);
 const mapCenter = ref([0, 0]);
-const markerInterval = ref(2);
+
+const isProcessCsvClicked = ref(false);
 const isLoadingCsv = ref(false);
 
 const formatFileSize = (bytes) => {
@@ -48,6 +49,7 @@ const handleCsvSubmit = async () => {
     if (!selectedCsvFile.value) return;
 
     isLoadingCsv.value = true;
+    isProcessCsvClicked.value = true;
 
     try {
         await new Promise((resolve) => {
@@ -69,8 +71,8 @@ const handleCsvSubmit = async () => {
 
                         // Validate coordinates
                         if (
-                            lat && 
-                            lon && 
+                            lat &&
+                            lon &&
                             !isNaN(lat) &&
                             !isNaN(lon) &&
                             datetime
@@ -109,11 +111,18 @@ const handleCsvSubmit = async () => {
                             flightPoints[0].lat,
                             flightPoints[0].lng,
                         ];
-                        markers.value = flightPoints;
+                        // Store all flight points for history
                         flightHistory.value = flightPoints;
-                        console.log(
-                            `Loaded ${flightPoints.length} unique flight points`
-                        );
+
+                        // Limit markers to 100 evenly distributed points
+                        if (flightPoints.length > 100) {
+                            const step = Math.floor(flightPoints.length / 100);
+                            markers.value = flightPoints
+                                .filter((_, index) => index % step === 0)
+                                .slice(0, 100);
+                        } else {
+                            markers.value = flightPoints;
+                        }
                     } else {
                         console.warn("No valid GPS points found in CSV");
                     }
@@ -130,6 +139,7 @@ const handleCsvSubmit = async () => {
         console.error("Error processing CSV:", error);
     } finally {
         isLoadingCsv.value = false;
+        isProcessCsvClicked.value = false;
     }
 };
 
@@ -173,11 +183,6 @@ const removeCustomMarker = (index) => {
     customMarkers.value.splice(index, 1);
 };
 
-const formatDateFromTimestamp = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toString();
-};
-
 // Clean up event listeners when component is unmounted
 const cleanupVideoListeners = () => {
     if (videoElement.value) {
@@ -198,164 +203,33 @@ const frameInterval = ref(5);
 const pathStats = ref(null);
 
 const exportMarkers = async () => {
-    if (!videoFile.value || !customMarkers.value.length) return;
+    if (!videoFile.value || !selectedCsvFile.value) return;
 
     isExporting.value = true;
     try {
         // Create form data
         const formData = new FormData();
         formData.append("video", selectedVideoFile.value);
-        formData.append("markers", JSON.stringify(customMarkers.value));
-        formData.append("frames_interval", frameInterval.value.toString());
+        formData.append("csv", selectedCsvFile.value);
+        formData.append("frame_interval", frameInterval.value.toString());
 
         // Send request to server
         const response = await axios.post(
-            `${API_URL}/interpolate-path`,
+            `${API_URL}/geotagger-video-test`,
             formData
         );
 
         // Store exported data
-        exportedFrames.value = response.data.points;
-        pathStats.value = response.data.path_stats;
+        exportedFrames.value = response.data.saved_frames;
 
-        // Download the results as JSON
-        const jsonContent = JSON.stringify(response.data, null, 2);
-        const blob = new Blob([jsonContent], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "video-markers.json";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
     } catch (error) {
-        console.error("Error exporting markers:", error);
+        console.error("Error exporting frames:", error);
         alert(
-            "Error exporting markers: " +
+            "Error exporting frames: " +
                 (error.response?.data?.error || error.message)
         );
     } finally {
         isExporting.value = false;
-    }
-};
-
-// Add helper functions for coordinate conversion
-const decimalToDMS = (decimal) => {
-    const degrees = Math.floor(decimal);
-    const minutesDecimal = (decimal - degrees) * 60;
-    const minutes = Math.floor(minutesDecimal);
-    const seconds = ((minutesDecimal - minutes) * 60).toFixed(2);
-
-    return [degrees, minutes, parseFloat(seconds)];
-};
-
-const base64ToBlob = async (base64Data, contentType) => {
-    try {
-        const response = await fetch(base64Data);
-        const blob = await response.blob();
-        return new Blob([blob], { type: contentType });
-    } catch (error) {
-        console.error("Error converting base64 to blob:", error);
-        throw error;
-    }
-};
-
-const isExportingImages = ref(false);
-
-const addExifToImage = async (imageDataUrl, lat, lng) => {
-    try {
-        // Convert base64 to binary
-        const imageData = imageDataUrl.replace(/^data:image\/jpeg;base64,/, "");
-
-        // Create GPS EXIF data
-        const zeroth = {};
-        const exif = {};
-        const gps = {};
-
-        // Convert decimal coordinates to EXIF format: [[D, 1], [M, 1], [S*100, 100]]
-        const latAbs = Math.abs(lat);
-        const latDeg = Math.floor(latAbs);
-        const latMin = Math.floor((latAbs - latDeg) * 60);
-        const latSec = Math.round((latAbs - latDeg - latMin / 60) * 3600 * 100);
-
-        const lngAbs = Math.abs(lng);
-        const lngDeg = Math.floor(lngAbs);
-        const lngMin = Math.floor((lngAbs - lngDeg) * 60);
-        const lngSec = Math.round((lngAbs - lngDeg - lngMin / 60) * 3600 * 100);
-
-        // Required GPS tags
-        gps[piexif.GPSIFD.GPSVersionID] = [2, 2, 0, 0];
-        gps[piexif.GPSIFD.GPSLatitudeRef] = lat >= 0 ? "N" : "S";
-        gps[piexif.GPSIFD.GPSLatitude] = [
-            [latDeg, 1],
-            [latMin, 1],
-            [latSec, 100],
-        ];
-        gps[piexif.GPSIFD.GPSLongitudeRef] = lng >= 0 ? "E" : "W";
-        gps[piexif.GPSIFD.GPSLongitude] = [
-            [lngDeg, 1],
-            [lngMin, 1],
-            [lngSec, 100],
-        ];
-
-        // Create EXIF object and dump to binary
-        const exifObj = { "0th": zeroth, Exif: exif, GPS: gps };
-        const exifBytes = piexif.dump(exifObj);
-
-        // Insert EXIF into JPEG
-        const newImageData = piexif.insert(exifBytes, imageData);
-
-        return `data:image/jpeg;base64,${newImageData}`;
-    } catch (error) {
-        console.error("Error adding EXIF data:", error);
-        console.log("Lat:", lat, "Lng:", lng);
-        return imageDataUrl;
-    }
-};
-
-const exportImagesWithExif = async () => {
-    if (!exportedFrames.value.length) return;
-    isExportingImages.value = true;
-
-    try {
-        const zip = new JSZip();
-        const imagesFolder = zip.folder("images");
-
-        for (let i = 0; i < exportedFrames.value.length; i++) {
-            const frame = exportedFrames.value[i];
-            const imageWithExif = await addExifToImage(
-                frame.frame,
-                frame.lat,
-                frame.lng
-            );
-
-            // Remove data URL prefix for zip file
-            const base64Data = imageWithExif.replace(
-                /^data:image\/jpeg;base64,/,
-                ""
-            );
-
-            const filename = `frame_${i}_${frame.timestamp.toFixed(
-                2
-            )}s_${frame.lat.toFixed(6)}_${frame.lng.toFixed(6)}.jpg`;
-            imagesFolder.file(filename, base64Data, { base64: true });
-        }
-
-        const content = await zip.generateAsync({ type: "blob" });
-        const url = URL.createObjectURL(content);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "frames_with_exif.zip";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    } catch (error) {
-        console.error("Error exporting images:", error);
-        alert("Error exporting images: " + error.message);
-    } finally {
-        isExportingImages.value = false;
     }
 };
 </script>
@@ -474,6 +348,8 @@ const exportImagesWithExif = async () => {
                                 }})
                             </p>
                         </div>
+                    </div>
+                    <div class="flex items-center pt-0 gap-x-4">
                         <button
                             type="submit"
                             class="btn-primary"
@@ -505,6 +381,41 @@ const exportImagesWithExif = async () => {
                                     isLoadingCsv
                                         ? "Processing..."
                                         : "Process CSV"
+                                }}</span>
+                            </div>
+                        </button>
+                        <button
+                            @click="exportMarkers"
+                            type="button"
+                            class="btn-primary"
+                            :disabled="!(flightHistory.length > 0)"
+                        >
+                            <div class="flex items-center space-x-2">
+                                <svg
+                                    v-if="isExporting"
+                                    class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <circle
+                                        class="opacity-25"
+                                        cx="12"
+                                        cy="12"
+                                        r="10"
+                                        stroke="currentColor"
+                                        stroke-width="4"
+                                    ></circle>
+                                    <path
+                                        class="opacity-75"
+                                        fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                    ></path>
+                                </svg>
+                                <span>{{
+                                    isExporting
+                                        ? "Exporting..."
+                                        : "Export Markers"
                                 }}</span>
                             </div>
                         </button>
@@ -541,38 +452,6 @@ const exportImagesWithExif = async () => {
                     <h3 class="text-lg font-medium text-gray-900 mb-4">
                         Custom Markers
                     </h3>
-                    <button
-                        @click="exportMarkers"
-                        class="btn-primary"
-                        :disabled="isExporting"
-                    >
-                        <div class="flex items-center space-x-2">
-                            <svg
-                                v-if="isExporting"
-                                class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                            >
-                                <circle
-                                    class="opacity-25"
-                                    cx="12"
-                                    cy="12"
-                                    r="10"
-                                    stroke="currentColor"
-                                    stroke-width="4"
-                                ></circle>
-                                <path
-                                    class="opacity-75"
-                                    fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                ></path>
-                            </svg>
-                            <span>{{
-                                isExporting ? "Exporting..." : "Export Markers"
-                            }}</span>
-                        </div>
-                    </button>
                     <ul class="space-y-2 h-96 overflow-y-auto">
                         <li
                             v-for="(marker, index) in customMarkers"
@@ -597,10 +476,10 @@ const exportImagesWithExif = async () => {
 
             <!-- Map Card -->
             <div class="card lg:col-span-2">
-                <h1 class="text-2xl font-bold text-gray-900 mb-6">Map View</h1>
-                <!-- {{ markers }} -->
+                <h1 class="text-2xl font-bold text-gray-900">Map View</h1>
+                <p class="text-gray-400">Maximum visualize 100 points</p>
 
-                <div class="h-[600px] rounded-lg overflow-hidden">
+                <div class="h-[600px] rounded-lg overflow-hidden mt-6">
                     <l-map
                         v-if="mapCenter[0] !== 0"
                         :center="mapCenter"
@@ -619,21 +498,6 @@ const exportImagesWithExif = async () => {
                         >
                             <l-popup>
                                 <div class="text-sm">
-                                    <!--<p style="margin: 0">
-                                        <b>Latitude:</b> {{ marker.lat }}°
-                                    </p>
-                                    <p style="margin: 0">
-                                        <b>Longitude:</b> {{ marker.lng }}°
-                                    </p>
-                                    <p style="margin: 0">
-                                        <b>Time:</b>
-                                        {{
-                                            formatDateFromTimestamp(
-                                                marker.timestamp
-                                            )
-                                        }}
-                                    </p> -->
-
                                     <p style="margin: 0">
                                         <b>Time:</b> {{ marker.datetime }}
                                     </p>
@@ -680,61 +544,34 @@ const exportImagesWithExif = async () => {
         <!-- Show exported frames if available -->
         <div v-if="exportedFrames.length > 0" class="mt-6 card">
             <h3 class="text-lg font-medium text-gray-900 mb-4">
-                Interpolated Path Frames
+                Captured Frames
             </h3>
-            <button
-                @click="exportImagesWithExif"
-                class="btn-primary"
-                :disabled="isExportingImages"
-            >
-                <div class="flex items-center space-x-2">
-                    <svg
-                        v-if="isExportingImages"
-                        class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                    >
-                        <circle
-                            class="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            stroke-width="4"
-                        ></circle>
-                        <path
-                            class="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        ></path>
-                    </svg>
-                    <span>
-                        {{
-                            isExportingImages
-                                ? "Exporting..."
-                                : "Export Images with EXIF"
-                        }}
-                    </span>
-                </div>
-            </button>
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 <div
-                    v-for="(point, index) in exportedFrames"
+                    v-for="(frame, index) in exportedFrames"
                     :key="index"
                     class="relative bg-white rounded-lg shadow-sm overflow-hidden"
                 >
                     <img
-                        :src="point.frame"
-                        :alt="`Frame at ${point.timestamp}s`"
+                        :src="`${API_URL}/${frame.path}`"
+                        :alt="`Frame at ${frame.timestamp}`"
                         class="w-full h-48 object-cover"
                     />
                     <div
                         class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-2"
                     >
-                        {{ point.timestamp.toFixed(2) }}s
-                        <br />
-                        [{{ point.lat.toFixed(6) }}, {{ point.lng.toFixed(6) }}]
+                        <div>
+                            {{ new Date(frame.timestamp).toLocaleString() }}
+                        </div>
+                        <div>
+                            Lat: {{ frame.telemetry.latitude.toFixed(6) }}
+                        </div>
+                        <div>
+                            Lng: {{ frame.telemetry.longitude.toFixed(6) }}
+                        </div>
+                        <div>
+                            Alt: {{ frame.telemetry.altitude.toFixed(1) }}m
+                        </div>
                     </div>
                 </div>
             </div>
