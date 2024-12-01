@@ -16,6 +16,7 @@
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "papaparse": "^5.4.1",
+    "piexifjs": "^1.0.6",
     "vue": "^3.5.12",
     "vue-router": "^4.4.5"
   },

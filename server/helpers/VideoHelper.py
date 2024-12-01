@@ -36,13 +36,70 @@ class VideoHelper:
         """Convert frame to base64 string with proper image data URI."""
         try:
             # Convert BGR to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)        
+            # # Encode frame as JPEG
+            # _, buffer = cv2.imencode('.jpg', frame_rgb, [
+            #     cv2.IMWRITE_JPEG_QUALITY, 85,
+            #     cv2.IMWRITE_JPEG_OPTIMIZE, 1
+            # ])
+            # # Convert to base64 and add data URI prefix
+            # base64_data = base64.b64encode(buffer).decode('utf-8')
+            # base64_frame = f"data:image/jpeg;base64,{base64_data}"
             
-            # Encode frame as JPEG
-            _, buffer = cv2.imencode('.jpg', frame_rgb, [
-                cv2.IMWRITE_JPEG_QUALITY, 85,
-                cv2.IMWRITE_JPEG_OPTIMIZE, 1
-            ])
+            # Convert BGR to RGB
+            frame_rgb = frame
+            
+            # Encode frame as JPEG with better quality settings
+            encode_params = [
+                cv2.IMWRITE_JPEG_QUALITY, 95,  # Higher quality (0-100)
+                cv2.IMWRITE_JPEG_OPTIMIZE, 1,   # Enable optimization
+                cv2.IMWRITE_JPEG_PROGRESSIVE, 1,  # Use progressive JPEG
+                cv2.IMWRITE_JPEG_LUMA_QUALITY, 90,  # Luma quality
+                cv2.IMWRITE_JPEG_CHROMA_QUALITY, 90,  # Chroma quality
+            ]
+            
+            # First resize if the image is too large
+            height, width = frame_rgb.shape[:2]
+            # Define dimension thresholds with quality tiers
+            dimensions = {
+                '8K': 7680,  # 8K UHD: 7680x4320
+                '6K': 6144,  # 6K: 6144x3456
+                '5K': 5120,  # 5K: 5120x2880
+                '4K': 3840,  # 4K UHD: 3840x2160
+                '2K': 2560,  # 2K: 2560x1440
+                'FHD': 1920  # Full HD: 1920x1080
+            }
+            
+            # Choose appropriate max dimension based on input size
+            max_dimension = dimensions['5K']
+            
+            # Only resize if the image exceeds the max dimension
+            if width > max_dimension or height > max_dimension:
+                if width > height:
+                    new_width = max_dimension
+                    new_height = int(height * (max_dimension / width))
+                else:
+                    new_height = max_dimension
+                    new_width = int(width * (max_dimension / height))
+                
+                frame_rgb = cv2.resize(
+                    frame_rgb, 
+                    (new_width, new_height), 
+                    interpolation=cv2.INTER_LANCZOS4
+                )
+                
+                # Adjust quality parameters for very large images
+                if max_dimension > dimensions['4K']:
+                    encode_params = [
+                        cv2.IMWRITE_JPEG_QUALITY, 90,  # Slightly lower quality for huge images
+                        cv2.IMWRITE_JPEG_OPTIMIZE, 1,
+                        cv2.IMWRITE_JPEG_PROGRESSIVE, 1,
+                        cv2.IMWRITE_JPEG_LUMA_QUALITY, 85,
+                        cv2.IMWRITE_JPEG_CHROMA_QUALITY, 85,
+                    ]
+            
+            # Encode with optimized parameters
+            _, buffer = cv2.imencode('.jpg', frame_rgb, encode_params)
             
             # Convert to base64 and add data URI prefix
             base64_data = base64.b64encode(buffer).decode('utf-8')
