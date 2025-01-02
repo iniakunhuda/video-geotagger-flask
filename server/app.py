@@ -285,7 +285,7 @@ def interpolate_path_v2():
 def geotagger_video_test():
     # Open json result2.json
     try:
-        with open('result2.json', 'r') as file:
+        with open('result-all.json', 'r') as file:
             data = json.load(file)
         return jsonify(data), 200
     except Exception as e:
@@ -306,7 +306,9 @@ def geotagger_video():
         csv_file = request.files['csv']
         
         # Get output directory from request or use default
-        output_dir = request.form.get('output_dir', 'drone_frames')
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        output_dir = os.path.join(base_dir, 'drone_frames')
+        # output_dir = request.form.get('output_dir', 'drone_frames')
         
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as video_tmp:
             video_file.save(video_tmp.name)
@@ -320,7 +322,7 @@ def geotagger_video():
             helper = GeotaggerHelper(csv_path, video_path, output_dir)
             helper.load_telemetry_data()
             helper.load_video()
-            saved_frames = helper.process_video()
+            saved_frames = helper.process_video_all()
             
             return jsonify({
                 'status': 'success',

@@ -157,6 +157,61 @@ class GeotaggerHelper:
             # 'gimbal_pitch': closest_row['gimbal_pitch(degrees)'],
             # 'gimbal_roll': closest_row['gimbal_roll(degrees)']
         }
+        
+    def process_video_all(self) -> List[Dict]:
+        """Process video and save all frames with corresponding telemetry data
+        
+        Returns:
+            List[Dict]: List of dictionaries containing frame information
+        """
+        if self.video_capture is None or self.telemetry_data is None:
+            raise Exception("Video and telemetry data must be loaded first")
+            
+        saved_frames = []
+        fps = self.video_capture.get(cv2.CAP_PROP_FPS)
+        frame_count = 0
+        
+        # Get video duration and start time
+        total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_duration = total_frames / fps
+        video_start_time = self.telemetry_data['timestamp'].iloc[0]
+        
+        print(f"Video duration: {video_duration} seconds")
+        print(f"Total frames to process: {total_frames}")
+        
+        while True:
+            ret, frame = self.video_capture.read()
+            if not ret:
+                break
+                
+            # Get current video position in seconds
+            current_pos_ms = self.video_capture.get(cv2.CAP_PROP_POS_MSEC)
+            current_pos_sec = current_pos_ms / 1000.0
+            
+            # Calculate current timestamp
+            current_timestamp = video_start_time + pd.Timedelta(seconds=current_pos_sec)
+            
+            # Get closest telemetry data
+            telemetry = self.get_telemetry_at_timestamp(current_timestamp)
+            
+            # Save frame with EXIF data
+            saved_path = self.save_frame_with_exif(frame, telemetry, current_timestamp)
+            
+            frame_info = {
+                'timestamp': current_timestamp.isoformat(),
+                'path': saved_path,
+                'telemetry': telemetry,
+                'frame_number': frame_count
+            }
+            saved_frames.append(frame_info)
+            
+            frame_count += 1
+            if frame_count % 100 == 0:
+                print(f"Processed {frame_count} frames")
+        
+        print(f"Total frames processed: {frame_count}")
+        print(f"Total frames saved: {len(saved_frames)}")
+        return saved_frames
 
     def process_video(self) -> List[Dict]:
         """Process video and save frames with EXIF data"""
