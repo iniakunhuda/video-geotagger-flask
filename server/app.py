@@ -11,6 +11,7 @@ from helpers.ExifHelper import ExifHelper
 from helpers.LocationHelper import LocationHelper
 from helpers.VideoHelper import VideoHelper
 from helpers.GeotaggerHelper import GeotaggerHelper
+from helpers.GeotaggerHelperInterval import GeotaggerHelperInterval
 
 app = Flask(__name__)
 # Enable CORS for all routes
@@ -323,6 +324,55 @@ def geotagger_video():
             helper.load_telemetry_data()
             helper.load_video()
             saved_frames = helper.process_video_all()
+            
+            return jsonify({
+                'status': 'success',
+                'saved_frames': saved_frames
+            })
+            
+        finally:
+            os.unlink(video_path)
+            os.unlink(csv_path)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+
+@app.route('/geotagger-video-interval', methods=['POST', 'OPTIONS'])
+def geotagger_video_interval():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
+        
+    try:
+        if 'video' not in request.files or 'csv' not in request.files:
+            return jsonify({'error': 'Missing video or CSV file'}), 400
+            
+        video_file = request.files['video']
+        csv_file = request.files['csv']
+        
+        # Get frame_interval from the request form
+        frame_interval = float(request.form.get('frame_interval', 1))
+        
+        # Get output directory from request or use default
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        output_dir = os.path.join(base_dir, 'drone_frames')
+        # output_dir = request.form.get('output_dir', 'drone_frames')
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as video_tmp:
+            video_file.save(video_tmp.name)
+            video_path = video_tmp.name
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as csv_tmp:
+            csv_file.save(csv_tmp.name)
+            csv_path = csv_tmp.name
+            
+        try:
+            helper = GeotaggerHelperInterval(csv_path, video_path, output_dir, frame_interval)
+            helper.load_telemetry_data()
+            helper.load_video()
+            saved_frames = helper.process_video()
             
             return jsonify({
                 'status': 'success',

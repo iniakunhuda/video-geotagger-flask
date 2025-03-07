@@ -121,7 +121,8 @@ class GeotaggerHelper:
     def load_telemetry_data(self) -> None:
         """Load and process the CSV telemetry data"""
         try:
-            df = pd.read_csv(self.csv_path)
+            df = pd.read_csv(self.csv_path, sep=';')
+            
             df.columns = df.columns.str.strip()
             df['timestamp'] = pd.to_datetime(df['datetime(utc)'])
             self.telemetry_data = df

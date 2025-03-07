@@ -58,7 +58,7 @@ const handleCsvSubmit = async () => {
                 complete: (results) => {
                     const uniquePoints = new Set();
                     const flightPoints = [];
-                    console.log(results.data);
+                    console.log("Result data", results.data);
 
                     results.data.forEach((row) => {
                         // Extract coordinates from the new format
@@ -214,8 +214,14 @@ const exportMarkers = async () => {
         formData.append("frame_interval", frameInterval.value.toString());
 
         // Send request to server
+        // const response = await axios.post(
+        //     `${API_URL}/geotagger-video`,
+        //     formData
+        // );
+
+        // Interval 1s
         const response = await axios.post(
-            `${API_URL}/geotagger-video-test`,
+            `${API_URL}/geotagger-video-interval`,
             formData
         );
 
@@ -319,8 +325,9 @@ const exportMarkers = async () => {
                                 <input
                                     v-model="frameInterval"
                                     type="number"
-                                    min="1"
+                                    min="0"
                                     max="60"
+                                    step="0.1"
                                     class="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                     placeholder="1"
                                 />
