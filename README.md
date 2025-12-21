@@ -1,7 +1,6 @@
 # Video Frame Extractor with Metadata Editor
 
-A web application for extracting frames from videos and managing image metadata, built with Vue.js and Flask.
-Useful for extract drone video to images.
+A web application for extracting frames from videos and managing image metadata, built with Vue.js and Flask
 
 ![Image](image.png)
 
